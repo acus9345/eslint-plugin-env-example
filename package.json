@@ -1,0 +1,61 @@
+{
+  "name": "eslint-plugin-env-example",
+  "version": "0.1.0",
+  "description": "ESLint rules that catch environment variables your code reads but .env.example doesn't list.",
+  "keywords": [
+    "eslint",
+    "eslintplugin",
+    "eslint-plugin",
+    "env",
+    "dotenv",
+    "env-example",
+    "environment-variables",
+    "process.env",
+    "import.meta.env"
+  ],
+  "homepage": "https://github.com/acus9345/eslint-plugin-env-example#readme",
+  "bugs": {
+    "url": "https://github.com/acus9345/eslint-plugin-env-example/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/acus9345/eslint-plugin-env-example.git"
+  },
+  "license": "MIT",
+  "author": "acus9345 <acus9345@gmail.com>",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./src/index.js",
+  "types": "./types/index.d.ts",
+  "files": [
+    "src",
+    "types",
+    "docs"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "node --test \"tests/**/*.test.js\"",
+    "check": "npm run build && npm run lint && npm test",
+    "prepack": "npm run build"
+  },
+  "engines": {
+    "node": "^22.13.0 || >=24"
+  },
+  "peerDependencies": {
+    "eslint": ">=9.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/estree": "^1.0.9",
+    "@types/node": "^24.19.2",
+    "eslint": "^10.13.0",
+    "typescript": "^7.0.2"
+  }
+}
