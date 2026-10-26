@@ -54,7 +54,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/estree": "^1.0.9",
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.5",
     "eslint": "^10.13.0",
     "typescript": "^7.0.2"
   }
