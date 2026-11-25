@@ -1,8 +1,13 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org/).
+
+## [0.1.1] - 2026-11-25
+
+### Fixed
+- Fix inline comment parsing, ChainExpression/TS wrapper unwrapping, destructuring/for-in write detection, physicalFilename resolution, and file cache invalidation.
 
 ## [0.1.0] - 2026-10-17
 

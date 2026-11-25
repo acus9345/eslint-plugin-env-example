@@ -1,6 +1,6 @@
 {
   "name": "eslint-plugin-env-example",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "ESLint rules that catch environment variables your code reads but .env.example doesn't list.",
   "keywords": [
     "eslint",
