@@ -5,6 +5,7 @@ import path from "node:path";
 import { after, describe, it } from "node:test";
 import { ESLint } from "eslint";
 import plugin from "../src/index.js";
+import { envObjectName, readFromMember, readsFromPattern } from "../src/env-access.js";
 import { findEnvFile, parseEnvNames, readEnvFile } from "../src/env-file.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "env-example-file-"));
@@ -28,6 +29,19 @@ describe("parseEnvNames", () => {
       ].join("\n"),
     );
     assert.deepEqual([...names].sort(), ["A", "B", "C", "D", "E", "F", "H.I-J"]);
+  });
+
+  it("reads bare names and export declarations followed by inline comments", () => {
+    const names = parseEnvNames(
+      [
+        "FEATURE_FLAG                      # a bare name counts too",
+        "export BARE_EXPORT   # exported bare name",
+        "BARE_NO_SPACE#not_a_comment",
+        "# COMMENTED_BARE # ignored",
+        "# COMMENTED_EQ= # kept",
+      ].join("\n"),
+    );
+    assert.deepEqual([...names].sort(), ["BARE_EXPORT", "COMMENTED_EQ", "FEATURE_FLAG"]);
   });
 
   it("handles empty input, BOM and CRLF", () => {
@@ -58,6 +72,18 @@ describe("readEnvFile / findEnvFile", () => {
     fs.writeFileSync(file, "A=1\nBB=2\n");
     const second = readEnvFile(file);
     assert.ok(second.ok && second.names.has("BB"));
+  });
+
+  it("re-reads the file when replaced with the same size via atomic rename", () => {
+    const file = path.join(tmp, "atomic.env");
+    const next = path.join(tmp, "atomic.env.tmp");
+    fs.writeFileSync(file, "AA=1\n");
+    const first = readEnvFile(file);
+    assert.ok(first.ok && first.names.has("AA"));
+    fs.writeFileSync(next, "BB=1\n");
+    fs.renameSync(next, file);
+    const second = readEnvFile(file);
+    assert.ok(second.ok && second.names.has("BB") && !second.names.has("AA"));
   });
 
   it("reads UTF-16 files written by Windows PowerShell", () => {
@@ -137,5 +163,81 @@ describe("plugin with ESLint", () => {
       ],
     });
     await assert.rejects(eslint.lintText("process.env.X"), /envfile|additional properties/i);
+  });
+
+  it("unwraps TypeScript assertion/cast nodes around env objects", () => {
+    const processEnv = {
+      type: "MemberExpression",
+      computed: false,
+      optional: false,
+      object: { type: "Identifier", name: "process" },
+      property: { type: "Identifier", name: "env" },
+    };
+    for (const wrapperType of [
+      "TSNonNullExpression",
+      "TSAsExpression",
+      "TSSatisfiesExpression",
+      "TSTypeAssertion",
+    ]) {
+      const wrapped = /** @type {any} */ ({ type: wrapperType, expression: processEnv });
+      assert.equal(envObjectName(wrapped), "process.env");
+      const memberRead = readFromMember(/** @type {any} */ ({
+        type: "MemberExpression",
+        computed: false,
+        optional: false,
+        object: wrapped,
+        property: { type: "Identifier", name: "API_URL" },
+      }));
+      assert.equal(memberRead?.name, "API_URL");
+      const patternReads = readsFromPattern(
+        /** @type {any} */ ({
+          type: "ObjectPattern",
+          properties: [
+            {
+              type: "Property",
+              computed: false,
+              shorthand: true,
+              key: { type: "Identifier", name: "SECRET" },
+              value: { type: "Identifier", name: "SECRET" },
+              kind: "init",
+              method: false,
+            },
+          ],
+        }),
+        wrapped,
+      );
+      assert.equal(patternReads[0]?.name, "SECRET");
+    }
+  });
+
+  it("resolves env files from physicalFilename when linting virtual processor blocks", async () => {
+    const project = path.join(tmp, "virtual");
+    fs.mkdirSync(project);
+    fs.writeFileSync(path.join(project, ".env.example"), "API_URL=\n");
+    const eslint = new ESLint({
+      cwd: project,
+      overrideConfigFile: true,
+      overrideConfig: [
+        plugin.configs.recommended,
+        {
+          files: ["**/*.md"],
+          processor: {
+            preprocess(text) {
+              return [{ text, filename: "0_block.js" }];
+            },
+            postprocess(messages) {
+              return messages[0];
+            },
+          },
+        },
+      ],
+    });
+    const [result] = await eslint.lintText("process.env.API_URL; process.env.MISSING;", {
+      filePath: path.join(project, "README.md"),
+    });
+    assert.deepEqual(
+      result.messages.map((m) => [m.ruleId, m.messageId]),
+      [["env-example/no-undeclared-env", "undeclared"]],
+    );
   });
 });

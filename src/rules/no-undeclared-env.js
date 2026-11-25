@@ -69,6 +69,8 @@ const rule = {
         '"{{name}}" is read from {{source}} but is not listed in {{file}}. Add a line "{{name}}=" to {{file}}, or add "{{name}}" to this rule\'s "allow" option.',
       noEnvFile:
         'No {{fileName}} found in "{{dir}}" or any folder above it, so {{source}} reads cannot be checked. Create {{fileName}} in your project root listing each variable (e.g. "API_URL="), or set this rule\'s "envFile" option.',
+      unreadableDiscoveredEnvFile:
+        'Could not read env file "{{file}}": {{reason}}.',
       unreadableEnvFile:
         'Could not use env file "{{file}}" from the "envFile" option: {{reason}}. Relative paths are resolved from "{{cwd}}"; fix the path or create the file.',
     },
@@ -126,14 +128,28 @@ const rule = {
         return declared;
       }
 
-      const startDir = path.dirname(path.resolve(cwd, context.filename));
+      const filename = context.physicalFilename || context.filename;
+      const startDir =
+        !filename || filename === "<input>" || filename === "<text>"
+          ? cwd
+          : path.dirname(path.resolve(cwd, filename));
       const found = findEnvFile(startDir);
-      const result = found ? readEnvFile(found) : null;
-      if (!found || !result?.ok) {
+      if (!found) {
         context.report({
           node,
           messageId: "noEnvFile",
           data: { fileName: DEFAULT_ENV_FILE, dir: startDir, source },
+        });
+        setupReported = true;
+        declared = null;
+        return declared;
+      }
+      const result = readEnvFile(found);
+      if (!result.ok) {
+        context.report({
+          node,
+          messageId: "unreadableDiscoveredEnvFile",
+          data: { file: displayPath(cwd, found), reason: result.reason },
         });
         setupReported = true;
         declared = null;

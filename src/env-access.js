@@ -53,6 +53,26 @@ function isIdentifier(node, name) {
 }
 
 /**
+ * Unwraps optional-chain wrappers and TypeScript assertion/cast wrappers around an expression.
+ *
+ * @param {Node} node
+ * @returns {Node}
+ */
+function unwrap(node) {
+  let current = node;
+  while (
+    current.type === "ChainExpression" ||
+    /** @type {string} */ (current.type) === "TSNonNullExpression" ||
+    /** @type {string} */ (current.type) === "TSAsExpression" ||
+    /** @type {string} */ (current.type) === "TSSatisfiesExpression" ||
+    /** @type {string} */ (current.type) === "TSTypeAssertion"
+  ) {
+    current = /** @type {{ expression: Node }} */ (/** @type {unknown} */ (current)).expression;
+  }
+  return current;
+}
+
+/**
  * If `node` is an env object (`process.env`, `import.meta.env`, `Bun.env`), returns its
  * display name; otherwise `null`.
  *
@@ -60,8 +80,9 @@ function isIdentifier(node, name) {
  * @returns {string | null}
  */
 export function envObjectName(node) {
-  if (node.type !== "MemberExpression" || memberName(node) !== "env") return null;
-  const { object } = node;
+  const target = unwrap(node);
+  if (target.type !== "MemberExpression" || memberName(target) !== "env") return null;
+  const object = unwrap(target.object);
   if (isIdentifier(object, "process")) return "process.env";
   if (isIdentifier(object, "Bun")) return "Bun.env";
   if (
@@ -75,8 +96,42 @@ export function envObjectName(node) {
 }
 
 /**
+ * True when `node` is the write target of an assignment, destructuring assignment, or
+ * `for..in` / `for..of` header.
+ *
+ * @param {MemberExpression} node
+ * @returns {boolean}
+ */
+function isAssignmentTarget(node) {
+  let current = /** @type {RuleNode} */ (/** @type {unknown} */ (node));
+  for (;;) {
+    const parent = current.parent;
+    if (!parent) return false;
+    if (
+      (parent.type === "AssignmentExpression" ||
+        parent.type === "ForInStatement" ||
+        parent.type === "ForOfStatement") &&
+      parent.left === current
+    ) {
+      return true;
+    }
+    if (
+      (parent.type === "Property" && parent.value === current) ||
+      parent.type === "ArrayPattern" ||
+      parent.type === "ObjectPattern" ||
+      (parent.type === "AssignmentPattern" && parent.left === current) ||
+      parent.type === "RestElement"
+    ) {
+      current = parent;
+      continue;
+    }
+    return false;
+  }
+}
+
+/**
  * True when the member expression is being written to or deleted rather than read
- * (`process.env.X = 1`, `process.env.X++`, `delete process.env.X`).
+ * (`process.env.X = 1`, `({ a: process.env.X } = obj)`, `process.env.X++`, `delete process.env.X`).
  *
  * @param {MemberExpression} node
  * @returns {boolean}
@@ -84,10 +139,9 @@ export function envObjectName(node) {
 function isWrite(node) {
   const parent = /** @type {RuleNode} */ (/** @type {unknown} */ (node)).parent;
   if (!parent) return false;
-  if (parent.type === "AssignmentExpression" && parent.left === node) return true;
   if (parent.type === "UpdateExpression") return true;
   if (parent.type === "UnaryExpression" && parent.operator === "delete") return true;
-  return false;
+  return isAssignmentTarget(node);
 }
 
 /**
@@ -132,13 +186,13 @@ export function readsFromPattern(pattern, init) {
  * @returns {EnvRead | null}
  */
 export function readFromCall(node) {
-  const { callee } = node;
+  const callee = unwrap(node.callee);
   if (callee.type !== "MemberExpression" || memberName(callee) !== "get") return null;
-  const { object } = callee;
+  const object = unwrap(callee.object);
   if (
     object.type !== "MemberExpression" ||
     memberName(object) !== "env" ||
-    !isIdentifier(object.object, "Deno")
+    !isIdentifier(unwrap(object.object), "Deno")
   ) {
     return null;
   }
@@ -170,6 +224,9 @@ export function envReadVisitor(onRead) {
       if (node.id.type === "ObjectPattern") readsFromPattern(node.id, node.init).forEach(onRead);
     },
     AssignmentExpression(node) {
+      if (node.left.type === "ObjectPattern") readsFromPattern(node.left, node.right).forEach(onRead);
+    },
+    AssignmentPattern(node) {
       if (node.left.type === "ObjectPattern") readsFromPattern(node.left, node.right).forEach(onRead);
     },
   };

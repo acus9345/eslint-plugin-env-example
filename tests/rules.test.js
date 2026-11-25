@@ -42,12 +42,19 @@ ruleTester.run("no-undeclared-env", undeclared, {
     { code: "Bun.env.API_URL", filename: appFile },
     { code: "Deno.env.get('API_URL')", filename: appFile },
     { code: "const { API_URL, DATABASE_URL: db, ...rest } = process.env", filename: appFile },
+    { code: "const { API_URL } = process?.env", filename: appFile },
+    { code: "let API_URL; ({ API_URL } = process?.env)", filename: appFile },
+    { code: "(process?.env).API_URL; (Deno?.env).get('API_URL'); (Deno.env.get)?.('API_URL')", filename: appFile },
+    { code: "function init({ API_URL } = process.env) { return API_URL; }", filename: appFile },
     { code: "let API_URL; ({ API_URL } = process.env)", filename: appFile },
     // Always allowed.
     { code: "process.env.NODE_ENV", filename: appFile },
     { code: "import.meta.env.MODE; import.meta.env.DEV; import.meta.env.BASE_URL", filename: appFile },
     // Writes and deletes are not reads.
     { code: "process.env.SET_AT_RUNTIME = 'x'", filename: appFile },
+    { code: "({ a: process.env.SET_AT_RUNTIME } = obj); [process.env.SET_AT_RUNTIME] = arr", filename: appFile },
+    { code: "({ a: process.env.SET_AT_RUNTIME = 'x' } = obj)", filename: appFile },
+    { code: "for (process.env.SET_AT_RUNTIME of items) {} for (process.env.SET_AT_RUNTIME in obj) {}", filename: appFile },
     { code: "delete process.env.SET_AT_RUNTIME", filename: appFile },
     { code: "process.env.COUNTER++", filename: appFile },
     // Dynamic keys are left to no-dynamic-env.
@@ -107,6 +114,24 @@ ruleTester.run("no-undeclared-env", undeclared, {
         { messageId: "undeclared", data: { name: "E", source: "process.env", file: appEnv } },
       ],
     },
+    // Optional chaining and default-parameter destructuring reads.
+    {
+      code: "const { MISSING_OPT } = process?.env; function f({ MISSING_DEF } = process.env) {}",
+      filename: appFile,
+      errors: [
+        { messageId: "undeclared", data: { name: "MISSING_OPT", source: "process.env", file: appEnv } },
+        { messageId: "undeclared", data: { name: "MISSING_DEF", source: "process.env", file: appEnv } },
+      ],
+    },
+    // Computed key and fallback value inside destructuring assignment targets are still reads.
+    {
+      code: "({ [process.env.MISSING_KEY]: target, a: target = process.env.MISSING_DEFAULT } = obj)",
+      filename: appFile,
+      errors: [
+        { messageId: "undeclared", data: { name: "MISSING_KEY", source: "process.env", file: appEnv } },
+        { messageId: "undeclared", data: { name: "MISSING_DEFAULT", source: "process.env", file: appEnv } },
+      ],
+    },
     // MODE is only a built-in on import.meta.env.
     { code: "process.env.MODE", filename: appFile, errors: [{ messageId: "undeclared" }] },
     // Prose comments do not declare variables.
@@ -159,6 +184,8 @@ ruleTester.run("no-dynamic-env", dynamic, {
     "Deno.env.get('API_URL')",
     "const { API_URL } = process.env",
     "process.env[key] = value",
+    "({ a: process.env[key] } = obj)",
+    "for (process.env[key] of items) {}",
     "spawn(cmd, { env: process.env })",
     "const env = { ...process.env }",
     "obj[key]",
@@ -171,5 +198,7 @@ ruleTester.run("no-dynamic-env", dynamic, {
     { code: "Deno.env.get(name)", errors: [{ messageId: "dynamic", data: { source: "Deno.env.get()" } }] },
     { code: "Deno.env.get()", errors: [{ messageId: "dynamic" }] },
     { code: "const { [key]: v } = process.env", errors: [{ messageId: "dynamic" }] },
+    { code: "const { [key]: v } = process?.env", errors: [{ messageId: "dynamic" }] },
+    { code: "function f({ [key]: v } = process.env) {}", errors: [{ messageId: "dynamic" }] },
   ],
 });

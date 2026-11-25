@@ -5,10 +5,10 @@ import path from "node:path";
 export const DEFAULT_ENV_FILE = ".env.example";
 
 /**
- * Matches `KEY=value`, `export KEY=value`, a bare `KEY`, and the same lines
- * commented out with `#` (a common way to document optional variables).
+ * Matches `KEY=value`, `export KEY=value`, a bare `KEY` (with optional trailing `# comment`),
+ * and commented-out assignments `# KEY=value` (a common way to document optional variables).
  */
-const LINE = /^\s*(#\s*)?(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*(=|$)/;
+const LINE = /^\s*(#\s*)?(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)(?:\s*(=)|(?:\s+#.*|\s*)$)/;
 
 /**
  * Parses the text of a dotenv-style file and returns the declared variable names.
@@ -52,7 +52,7 @@ function decode(bytes) {
   return bytes.toString("utf8");
 }
 
-/** @type {Map<string, { mtimeMs: number, size: number, names: Set<string> }>} */
+/** @type {Map<string, { ino: number, mtimeMs: number, ctimeMs: number, size: number, names: Set<string> }>} */
 const cache = new Map();
 
 /**
@@ -65,13 +65,23 @@ export function readEnvFile(file) {
   let stat;
   try {
     stat = fs.statSync(file);
-  } catch {
-    return { ok: false, reason: "the file does not exist" };
+  } catch (error) {
+    const code = /** @type {NodeJS.ErrnoException} */ (error).code;
+    if (code === "ENOENT" || code === "ENOTDIR") {
+      return { ok: false, reason: "the file does not exist" };
+    }
+    return { ok: false, reason: `it could not be read (${code ?? "unknown error"})` };
   }
   if (!stat.isFile()) return { ok: false, reason: "the path is not a file" };
 
   const hit = cache.get(file);
-  if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) {
+  if (
+    hit &&
+    hit.ino === stat.ino &&
+    hit.mtimeMs === stat.mtimeMs &&
+    hit.ctimeMs === stat.ctimeMs &&
+    hit.size === stat.size
+  ) {
     return { ok: true, names: hit.names };
   }
   let bytes;
@@ -82,7 +92,13 @@ export function readEnvFile(file) {
     return { ok: false, reason: `it could not be read (${code})` };
   }
   const names = parseEnvNames(decode(bytes));
-  cache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, names });
+  cache.set(file, {
+    ino: stat.ino,
+    mtimeMs: stat.mtimeMs,
+    ctimeMs: stat.ctimeMs,
+    size: stat.size,
+    names,
+  });
   return { ok: true, names };
 }
 
